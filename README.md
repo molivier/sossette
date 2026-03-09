@@ -13,6 +13,7 @@ Compared to the `socat + timeout` combo:
   - The target process group always gets killed when the socket is closed.
     Works well with `cpulimit` and `qemu`.
   - Optional proof-of-work system.
+  - PROXY protocol support to log real IP addresses behind reverse proxies.
   - Deployment using a single statically linked binary (using musl).
 
 This project is developed for [France Cybersecurity Challenge](https://fcsc.fr/)
@@ -64,6 +65,50 @@ hello
 world
 world
 ^C
+```
+
+## PROXY protocol support
+
+Sossette supports the [PROXY protocol v2](https://github.com/haproxy/haproxy/blob/master/doc/proxy-protocol.txt) to preserve client IP addresses when running behind a load balancer or reverse proxy.
+
+Support for PROXY protocol v2 can be enabled using the `--proxy-protocol` flag or `WRAPPER_PROXY_PROTOCOL=true` environment variable.
+When enabled, a valid PROXY protocol v2 header is **required** and connections without one are rejected:
+
+The real IP address will be log:
+```
+[2024-03-09T10:15:23Z INFO  sossette] Client 192.0.2.123:54321 -> 192.0.2.122:4000 (via proxy [::1]:55438) connected
+```
+
+**Security note**: When using PROXY protocol, ensure that only trusted load balancers can connect to sossette (e.g., using firewall rules).
+Otherwise, clients could spoof their IP addresses by sending fake PROXY protocol headers.
+
+### HAProxy configuration
+
+Configure HAProxy to send PROXY protocol v2 headers:
+
+```haproxy
+frontend tcp_front
+    bind *:443
+    mode tcp
+    default_backend tcp_back
+
+backend tcp_back
+    mode tcp
+    server sossette 127.0.0.1:4000 send-proxy-v2
+```
+
+### NGINX configuration
+
+Configure NGINX stream module with PROXY protocol:
+
+```nginx
+stream {
+    server {
+        listen 443;
+        proxy_pass 127.0.0.1:4000;
+        proxy_protocol on;
+    }
+}
 ```
 
 ## Applying transformations to stdin

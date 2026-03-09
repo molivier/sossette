@@ -3,11 +3,12 @@
 
 mod handler;
 mod pow;
+mod proxy;
 
 use anyhow::{Context, Result};
 use clap::Parser;
 use clap_verbosity_flag::{InfoLevel, Verbosity};
-use log::{error, info, warn};
+use log::{debug, error, info, warn};
 
 use tokio::net::TcpListener;
 
@@ -35,6 +36,10 @@ struct Args {
     #[arg(long, value_name = "STRING", env = "WRAPPER_POW_BACKDOOR")]
     pow_backdoor: Option<String>,
 
+    /// Require PROXY protocol v2 header, reject connections without it
+    #[arg(long, env = "WRAPPER_PROXY_PROTOCOL")]
+    proxy_protocol: bool,
+
     #[command(flatten)]
     verbose: Verbosity<InfoLevel>,
 
@@ -54,18 +59,39 @@ async fn serve(args: Args) -> Result<()> {
     loop {
         // See https://docs.rs/tokio/latest/tokio/net/struct.TcpListener.html#errors
         match listener.accept().await {
-            Ok((socket, peer_addr)) => {
-                info!("Client {peer_addr:?} connected");
+            Ok((mut socket, peer_addr)) => {
+                // Parse PROXY protocol header if enabled
+                let full_address = if args.proxy_protocol {
+                    match proxy::parse_proxy_v2_header(&mut socket).await {
+                        Ok(proxy::ProxyHeader::Proxied(info)) => format!(
+                            "{}:{} -> {}:{} (via proxy {})",
+                            info.src_addr, info.src_port, info.dst_addr, info.dst_port, peer_addr
+                        ),
+                        Ok(proxy::ProxyHeader::Local) => {
+                            debug!("PROXY protocol LOCAL command");
+                            peer_addr.to_string()
+                        }
+                        Err(e) => {
+                            warn!(
+                                "Rejecting connection from {peer_addr} due to PROXY protocol error: {e:?}"
+                            );
+                            continue;
+                        }
+                    }
+                } else {
+                    peer_addr.to_string()
+                };
+                info!("Client {full_address} connected");
 
                 // Spawn task to handle this client
                 let my_args = args.clone();
                 tokio::spawn(async move {
                     match handler::handle_client(socket, my_args).await {
                         Ok(()) => {
-                            info!("Client {peer_addr:?} disconnected");
+                            info!("Client {full_address} disconnected");
                         }
                         Err(e) => {
-                            warn!("Handling client {peer_addr:?} failed: {e:?}");
+                            warn!("Handling client {full_address} failed: {e:?}");
                         }
                     }
                 });
