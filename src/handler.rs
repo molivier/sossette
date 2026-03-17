@@ -27,10 +27,6 @@ async fn process_stdin<R: AsyncReadExt + Unpin, W: AsyncWriteExt + Unpin>(
         if n == 0 {
             return Ok(()); // socket closed
         }
-        if in_buf[0] == 3 {
-            debug!("Client sent Ctrl-C");
-            return Ok(());
-        }
         debug!("Writting to stdin: {:?}", &in_buf[0..n]);
         child_stdin
             .write_all(&in_buf[0..n])

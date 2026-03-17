@@ -36,8 +36,8 @@ pub async fn proof_of_work_prompt<S: AsyncReadExt + AsyncWriteExt + std::marker:
     let mut buf_n = 0;
     while buf_n < 256 {
         let n = socket.read(&mut buf[buf_n..=buf_n]).await?;
-        if n == 0 || buf[buf_n] == b'\x03' {
-            return Ok(false); // socket closed or Ctrl-C
+        if n == 0 {
+            return Ok(false); // socket closed
         }
         if buf[buf_n] == b'\0' || buf[buf_n] == b'\n' {
             break; // telnet uses \r\0, netcat \r\n
