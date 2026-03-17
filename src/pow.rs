@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2023-2025 erdnaxe
 // SPDX-License-Identifier: MIT
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use rand::distr::Alphanumeric;
 use rand::{RngExt, rng};
 use sha2::{Digest, Sha256};
@@ -26,52 +26,69 @@ pub async fn proof_of_work_prompt<S: AsyncReadExt + AsyncWriteExt + std::marker:
         .collect::<Vec<u8>>()
         .as_slice()
         .try_into()
-        .unwrap();
+        .context("Failed to generate random prefix")?;
 
     // Prompt user
     socket.write_all(POW_HEADER_MESSAGE).await?;
-    let prompt = format!("Please provide an ASCII printable string S such that SHA256({} || S) starts with {} bits equal to 0 (the string concatenation is denoted ||): ", String::from_utf8(prefix.into())?, difficulty);
+    let prompt = format!(
+        "Please provide an ASCII printable string S such that SHA256({} || S) starts with {} bits equal to 0 (the string concatenation is denoted ||): ",
+        String::from_utf8(prefix.into())?,
+        difficulty
+    );
     socket.write_all(prompt.as_bytes()).await?;
-    let mut buf = [0; 256];
-    let mut buf_n = 0;
+    let mut buf = [0u8; 256];
+    let mut buf_n: usize = 0;
     while buf_n < 256 {
-        let n = socket.read(&mut buf[buf_n..=buf_n]).await?;
+        let byte = buf
+            .get_mut(buf_n..=buf_n)
+            .context("read index out of bounds")?;
+        let n = socket.read(byte).await?;
         if n == 0 {
             return Ok(false); // socket closed
         }
-        if buf[buf_n] == b'\0' || buf[buf_n] == b'\n' {
+
+        let current = byte.first().context("index out of bounds")?;
+        if *current == b'\0' || *current == b'\n' {
             break; // telnet uses \r\0, netcat \r\n
         }
-        if buf[buf_n] >= 127 || buf[buf_n] < 32 {
+        if !(32..127).contains(current) {
             continue; // ignore non ascii printable
         }
-        buf_n += n;
+        buf_n = buf_n.checked_add(n).context("buffer index overflow")?;
     }
-    while buf_n > 0
-        && (buf[buf_n - 1] == b'\n' || buf[buf_n - 1] == b'\r' || buf[buf_n - 1] == b'\0')
+
+    // Get the user input as a slice
+    let mut suffix = buf.get(..buf_n).context("slice out of bounds")?;
+
+    // Trim trailing carriage return
+    while let Some(last) = suffix.last()
+        && (*last == b'\n' || *last == b'\r' || *last == b'\0')
     {
-        buf_n -= 1; // trim input
+        suffix
+            .split_off_last()
+            .context("failed to remove trailing")?;
     }
 
     // Backdoor for staff testing
-    if let Some(backdoor_str) = backdoor
-        && backdoor_str.as_bytes() == &buf[..buf_n] {
-            return Ok(true);
-        }
+    if let Some(bd) = backdoor
+        && bd.as_bytes() == suffix
+    {
+        return Ok(true);
+    }
 
     // Compute hash
     let mut hasher = Sha256::new();
     hasher.update(prefix);
-    hasher.update(&buf[..buf_n]);
+    hasher.update(suffix);
     let hash: [u8; 32] = hasher.finalize().into();
 
     // Count zeros
-    let mut measured_difficulty = 0;
+    let mut measured_difficulty: u32 = 0;
     for hash_byte in &hash {
         if *hash_byte == 0 {
-            measured_difficulty += 8;
+            measured_difficulty = measured_difficulty.saturating_add(8);
         } else {
-            measured_difficulty += hash_byte.leading_zeros();
+            measured_difficulty = measured_difficulty.saturating_add(hash_byte.leading_zeros());
             break;
         }
     }

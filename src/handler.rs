@@ -1,8 +1,8 @@
 // SPDX-FileCopyrightText: 2023-2025 erdnaxe
 // SPDX-License-Identifier: MIT
 
-use crate::pow;
 use crate::Args;
+use crate::pow;
 
 use std::process::Stdio;
 use std::time::Duration;
@@ -27,9 +27,10 @@ async fn process_stdin<R: AsyncReadExt + Unpin, W: AsyncWriteExt + Unpin>(
         if n == 0 {
             return Ok(()); // socket closed
         }
-        debug!("Writting to stdin: {:?}", &in_buf[0..n]);
+        let data = in_buf.get(..n).context("stdin read index out of bounds")?;
+        debug!("Writting to stdin: {data:?}");
         child_stdin
-            .write_all(&in_buf[0..n])
+            .write_all(data)
             .await
             .context("Failed to write to stdin")?;
     }
@@ -46,8 +47,12 @@ async fn process_stdout<R: AsyncReadExt + Unpin, W: AsyncWriteExt + Unpin>(
         if n == 0 {
             return Ok(()); // process closed
         }
+        let data = out_buf
+            .get(..n)
+            .context("stdout read index out of bounds")?;
+        debug!("Reading from stdout: {data:?}");
         socket
-            .write_all(&out_buf[0..n])
+            .write_all(data)
             .await
             .context("Failed to write to socket")?;
     }
