@@ -21,7 +21,7 @@ async fn process_stdin<R: AsyncReadExt + Unpin, W: AsyncWriteExt + Unpin>(
     mut socket: R,
     mut child_stdin: W,
 ) -> Result<()> {
-    let mut in_buf = [0; 1024];
+    let mut in_buf = [0u8; 1024];
     loop {
         let n = socket.read(&mut in_buf).await?;
         if n == 0 {
@@ -41,7 +41,7 @@ async fn process_stdout<R: AsyncReadExt + Unpin, W: AsyncWriteExt + Unpin>(
     mut socket: W,
     mut child_stdout: R,
 ) -> Result<()> {
-    let mut out_buf = [0; 1024];
+    let mut out_buf = [0u8; 1024];
     loop {
         let n = child_stdout.read(&mut out_buf).await?;
         if n == 0 {

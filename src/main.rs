@@ -104,6 +104,6 @@ mod tests {
     #[test]
     fn verify_cli() {
         use clap::CommandFactory;
-        crate::Args::command().debug_assert()
+        crate::Args::command().debug_assert();
     }
 }
