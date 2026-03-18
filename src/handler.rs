@@ -102,9 +102,14 @@ pub async fn handle_client(mut socket: TcpStream, args: Args) -> Result<()> {
         });
     }
 
-    // If one task exits, drop the others
-    // Child group should always be killed before dropping child handle.
+    // If one task exits, abort the others
     let res = set.join_next().await;
+    set.abort_all();
+
+    // Kill process group then await to avoid zombie process
+    // Child group should always be killed before dropping child handle.
     child.kill().await.context("Failed to kill process group")?;
+    let _ = child.wait().await;
+
     res.unwrap_or(Ok(Ok(())))?
 }
